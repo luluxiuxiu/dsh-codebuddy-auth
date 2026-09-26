@@ -2,7 +2,14 @@
 # composition that already provides the `tools`, `settings`, and
 # `credentials` services (the dsh base and web profiles both do). Config
 # keys omitted here keep their schema defaults.
+#
+# The main row registers the `codebuddy` llm adapter + tool and owns the
+# account pool; the /web row mounts the loopback settings & login UI and stays
+# pending in profiles without a web server (headless), exactly like dsh-agy.
 
 - insert:
     - id: codebuddy-auth
       name: dsh-codebuddy-auth
+
+    - id: codebuddy-auth-web
+      name: 'dsh-codebuddy-auth/web'

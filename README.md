@@ -2,7 +2,9 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, automatic token renewal, and model-list sync. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-1`, and `minimax-m3` appear in the model picker.
+Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, a **multi-account pool**, **credit/quota lookup**, **auto-rotation on exhaustion**, automatic token renewal, model-list sync, and a built-in loopback **settings/login web UI**. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-1`, and `minimax-m3` appear in the model picker.
+
+> Version target: built for **DSH 0.1.7 rc2** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.1.7-rc.2`) and **CodeBuddy CLI v2.158.0**. It uses the 0.1.7 message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.1.7 rc2 before loading this plugin.
 
 ## How it works
 
@@ -10,7 +12,7 @@ The plugin registers a **native `ctx.llm` adapter** on the `codebuddy` provider 
 
 | Plane | Identity | Why |
 | --- | --- | --- |
-| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.96.0 CodeBuddy/2.96.0`, minimal headers) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. |
+| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.158.0 CodeBuddy/2.158.0` + `x-codebuddy-request: 1`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. |
 | Model discovery (`GET /v3/config`) | Craft / VSCode (`X-Agent-Intent: craft`, `X-IDE-*`) | The craft catalog is the only one disclosing per-model reasoning metadata (`supportedEfforts`, `canDisableThinking`, `defaultEffort`) and the curated model list. The CLI catalog answers the same endpoint but carries only fixed `effort` values. |
 
 The catalog is cached for 5 minutes and refreshed on demand (`sync-models`).
@@ -95,13 +97,31 @@ Each model is declared with its **full real reasoning capability** from `/v3/con
 - **Selectable levels** (per model): `supportedEfforts` mirrors straight into the picker — `deepseek-v4-pro` offers `low` / `high` / `xhigh`, `hy3` offers `low` / `high`, fixed-effort models (e.g. `glm-5.1`) offer their single `medium`. Sent on the wire as `reasoning_effort: "<level>"`.
 - **Default level**: each model uses the `defaultEffort` its `/v3/config` entry reports (e.g. `glm-5.2` defaults to `high`); every declared level stays selectable in the picker.
 
+## Multi-account, credits & account switching
+
+Every logged-in account lives in one `CODEBUDDY_ACCOUNTS` document in the credential store (a pre-0.9 single-token install is migrated in as account 0). All four switching behaviors are supported:
+
+- **Auto-rotate on exhaustion**: when the active account hits QUOTA_EXCEEDED / RATE_LIMIT, it is put on cooldown and the request falls through to the next usable account.
+- **Lock an account**: `lock` pins one account as active and disables auto-rotation off it (unlock before it can move).
+- **Manual switch**: `activate <id>` sets the active account directly.
+- **Skip unavailable accounts**: disabled, cooling, or token-less accounts are skipped during selection and rotation.
+
+Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified live): the remaining balance sums the non-expired `credits` packages' `CapacityRemain`. Three entry points:
+
+- **Web UI (recommended)**: after restarting DSH, open `http://127.0.0.1:<web-port>/codebuddy` — account list + status + credits, in-page login, enable/disable/delete, import/export, model view/sync. Loopback-only (the routes manage tokens).
+- **Agent**: say "codebuddy accounts" / "check codebuddy credits" / "switch to <id>" / "lock this account".
+- **`codebuddy` tool**: `accounts` / `activate` / `lock` / `quota` / `status` actions.
+
 ## Files
 
-- `lib/index.js` — the Cordis host plugin (host composition row). Registers the `codebuddy` provider and the `codebuddy` tool; refreshes/syncs at startup and every 30 minutes.
-- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter: SSE streaming, message serialization, reasoning metadata, error mapping. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
-- `lib/codebuddy-core.mjs` — OAuth, JWT decoding, identity headers, and `/v3/config` discovery; dependency-free.
-- `bin/login-flow.mjs` — standalone login CLI; no npm dependencies.
-- `cordis.patch.yml` — in-package patch (self-mount row for bundle consumers).
+- `lib/index.js` — the Cordis host plugin (composition row). Registers the `codebuddy` provider and tool, owns the account pool, and drives rotation + the 30-minute renewal/quota guard.
+- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.1.7 rc2 message model): SSE streaming, message serialization, reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
+- `lib/codebuddy-core.mjs` — OAuth, JWT decoding, CLI/craft identity headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
+- `lib/accounts.mjs` — the multi-account pool (read-through storage, CRUD, activate, lock, enable, cooldown, rotation, import/export, legacy migration).
+- `lib/runtime.mjs` — the shared operation layer both the tool and the web UI call (login/refresh/quota/sync/account control), so the two surfaces never drift.
+- `lib/web.mjs` + `lib/web-ui.mjs` — the `dsh-codebuddy-auth/web` plugin: mounts the `/codebuddy` settings/login page via `ctx.webServer.register` (loopback).
+- `bin/login-flow.mjs` — standalone login CLI (single-account bootstrap; its legacy tokens are adopted by the pool migration); no npm dependencies.
+- `cordis.patch.yml` — in-package patch (mounts both the main plugin and the `/web` UI row).
 
 ## Known limitations (all verified empirically)
 

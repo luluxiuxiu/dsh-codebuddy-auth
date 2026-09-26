@@ -2,7 +2,9 @@
 
 [English](README.md) | 简体中文
 
-在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、token 自动续期、模型列表自动同步。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-1`、`minimax-m3` 等 craft agent 模型。
+在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、**多账户池**、**积分/额度查询**、**额度耗尽自动轮换**、token 自动续期、模型列表自动同步,并自带一个本机**设置/登录 Web UI**。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-1`、`minimax-m3` 等 craft agent 模型。
+
+> 版本要求:适配 **DSH 0.1.7 rc2**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.1.7-rc.2`)与 **CodeBuddy CLI v2.158.0**。因使用了 0.1.7 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.1.7 rc2 后再加载本插件。
 
 ## 工作原理
 
@@ -10,7 +12,7 @@
 
 | 平面 | 身份 | 原因 |
 | --- | --- | --- |
-| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.96.0 CodeBuddy/2.96.0`,极简请求头) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截。 |
+| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.158.0 CodeBuddy/2.158.0` + `x-codebuddy-request: 1`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截。 |
 | 模型发现(`GET /v3/config`) | Craft / VSCode(`X-Agent-Intent: craft` + `X-IDE-*`) | craft 目录是唯一披露每模型推理元数据(`supportedEfforts`、`canDisableThinking`、`defaultEffort`)与精选模型列表的目录;CLI 目录同一端点只返回固定的 `effort` 值。 |
 
 模型目录缓存 5 分钟,可随时 `sync-models` 刷新。
@@ -95,13 +97,31 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 - **可选等级**(按模型):`supportedEfforts` 原样进选择器——`deepseek-v4-pro` 可选 `low` / `high` / `xhigh`,`hy3` 可选 `low` / `high`,固定等级模型(如 `glm-5.1`)只有 `medium` 一档。线上以 `reasoning_effort: "<level>"` 发送。
 - **默认等级**:每模型直接采用 `/v3/config` 报告的 `defaultEffort`(如 glm-5.2 默认 high),选择器里所有已声明等级仍可自由选。
 
+## 多账户 / 积分 / 锁定切换
+
+插件把所有登录过的账户存在凭据存储的单个 `CODEBUDDY_ACCOUNTS` 文档里(旧版单令牌安装会自动迁移为账户池的第 0 个账户),四种切换行为都支持:
+
+- **配额耗尽自动轮换**:活跃账户命中额度/限流(QUOTA_EXCEEDED / RATE_LIMIT)时,自动把它置入冷却并切到下一个可用账户,同一条请求由下一个账户兜底。
+- **手动锁定活跃账户**:`lock` 把某账户钉为活跃并禁用自动轮换(切走前需先解锁)。
+- **多账户手动切换**:`activate <id>` 直接切换活跃账户。
+- **被禁/不可用账户跳过**:`enabled:false`、冷却中、令牌缺失的账户在轮换与选择时被跳过。
+
+积分/额度查询走 `POST /v2/billing/meter/get-user-resource`(实测):汇总未过期的 `credits` 资源包 `CapacityRemain` 得到剩余积分。三种入口:
+
+- **Web UI(推荐)**:重启 DSH 后浏览器打开 `http://127.0.0.1:<web端口>/codebuddy`——账户列表+状态+积分、页内登录新增、启用/禁用/删除、导入/导出、模型查看/同步。仅监听 loopback(路由管理令牌)。
+- **agent**:说 "codebuddy 账户" / "查 codebuddy 积分" / "切换到 <id>" / "锁定这个账户"。
+- **`codebuddy` 工具**:`accounts` / `activate` / `lock` / `quota` / `status` 等动作。
+
 ## 文件
 
-- `lib/index.js` — Cordis 宿主插件(host 组合行)。注册 `codebuddy` provider 与 `codebuddy` 工具,启动时及每 30 分钟自动刷新/同步。
-- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器:SSE 流式、消息序列化、推理元数据、错误映射。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
-- `lib/codebuddy-core.mjs` — OAuth、JWT 解码、身份头、`/v3/config` 发现;无依赖。
-- `bin/login-flow.mjs` — 独立登录 CLI,无 npm 依赖。
-- `cordis.patch.yml` — 包内 patch(bundle 消费时的自挂载行)。
+- `lib/index.js` — Cordis 宿主插件(组合行)。注册 `codebuddy` provider 与 `codebuddy` 工具、持有账户池、驱动轮换与每 30 分钟续期/配额巡检。
+- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.1.7 rc2 消息模型):SSE 流式、消息序列化、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
+- `lib/codebuddy-core.mjs` — OAuth、JWT 解码、CLI/craft 身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
+- `lib/accounts.mjs` — 多账户池(读透式存储/增删改查/激活/锁定/禁用/冷却/轮换/导入导出/旧令牌迁移)。
+- `lib/runtime.mjs` — 工具与 Web UI 共享的操作层(登录/刷新/配额/同步/账户控制),两个面不会漂移。
+- `lib/web.mjs` + `lib/web-ui.mjs` — `dsh-codebuddy-auth/web` 独立插件,经 `ctx.webServer.register` 挂载 `/codebuddy` 设置/登录页(loopback)。
+- `bin/login-flow.mjs` — 独立登录 CLI(单账户引导;写入的旧令牌会被账户池迁移收养),无 npm 依赖。
+- `cordis.patch.yml` — 包内 patch(同时挂载主插件与 `/web` UI 行)。
 
 ## 已知限制(均为实测结论)
 
