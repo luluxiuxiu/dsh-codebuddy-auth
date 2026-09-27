@@ -108,7 +108,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 
 积分/额度查询走 `POST /v2/billing/meter/get-user-resource`(实测):汇总未过期的 `credits` 资源包 `CapacityRemain` 得到剩余积分。三种入口:
 
-- **Web UI(推荐)**:重启 DSH 后浏览器打开 `http://127.0.0.1:<web端口>/codebuddy`——账户列表+状态+积分、页内登录新增、启用/禁用/删除、导入/导出、模型查看/同步。仅监听 loopback(路由管理令牌)。
+- **内置设置 tab（推荐）**：安装后**重启 DSH**，打开**设置 → 内置插件**，即可看到 **CodeBuddy** tab——账户列表+状态+积分、页内登录新增、启用/禁用/删除、导入/导出、模型查看/同步。它是一个客户端插件，通过 `settings.plugins.tab` 插槽注册进内置设置面板（React，`lib/client.js`），同源调用仅 loopback 的 `/codebuddy/api/*` 路由。
 - **agent**:说 "codebuddy 账户" / "查 codebuddy 积分" / "切换到 <id>" / "锁定这个账户"。
 - **`codebuddy` 工具**:`accounts` / `activate` / `lock` / `quota` / `status` 等动作。
 
@@ -119,7 +119,8 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 - `lib/codebuddy-core.mjs` — OAuth、JWT 解码、CLI/craft 身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
 - `lib/accounts.mjs` — 多账户池(读透式存储/增删改查/激活/锁定/禁用/冷却/轮换/导入导出/旧令牌迁移)。
 - `lib/runtime.mjs` — 工具与 Web UI 共享的操作层(登录/刷新/配额/同步/账户控制),两个面不会漂移。
-- `lib/web.mjs` + `lib/web-ui.mjs` — `dsh-codebuddy-auth/web` 独立插件,经 `ctx.webServer.register` 挂载 `/codebuddy` 设置/登录页(loopback)。
+- `lib/web.mjs` — `dsh-codebuddy-auth/web` 独立插件，经 `ctx.webServer.register` 注册设置 tab 同源调用的 `/codebuddy/api/*` 路由（仅 loopback）。
+- `lib/client.js` — 浏览器客户端插件（由 `dsh.client` 声明、web shell 自动加载）：一个 React 面板，通过 `settings.plugins.tab` 插槽注册进内置「设置 → 内置插件」的 **CodeBuddy** tab。手写 `React.createElement`（无 JSX/无构建），调 `/codebuddy/api/*`。
 - `bin/login-flow.mjs` — 独立登录 CLI(单账户引导;写入的旧令牌会被账户池迁移收养),无 npm 依赖。
 - `cordis.patch.yml` — 包内 patch(同时挂载主插件与 `/web` UI 行)。
 

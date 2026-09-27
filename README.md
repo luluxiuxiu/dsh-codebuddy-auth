@@ -108,7 +108,7 @@ Every logged-in account lives in one `CODEBUDDY_ACCOUNTS` document in the creden
 
 Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified live): the remaining balance sums the non-expired `credits` packages' `CapacityRemain`. Three entry points:
 
-- **Web UI (recommended)**: after restarting DSH, open `http://127.0.0.1:<web-port>/codebuddy` — account list + status + credits, in-page login, enable/disable/delete, import/export, model view/sync. Loopback-only (the routes manage tokens).
+- **Built-in settings tab (recommended)**: after installing, **restart DSH**, then open **设置 → 内置插件 (Settings → Built-in plugins)** and you'll find a **CodeBuddy** tab — account list + status + credits, in-page login, enable/disable/delete, import/export, model view/sync. It's a client plugin registered into the settings panel via the `settings.plugins.tab` slot (React, `lib/client.js`), talking to the same-origin `/codebuddy/api/*` routes (loopback-only).
 - **Agent**: say "codebuddy accounts" / "check codebuddy credits" / "switch to <id>" / "lock this account".
 - **`codebuddy` tool**: `accounts` / `activate` / `lock` / `quota` / `status` actions.
 
@@ -119,7 +119,8 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 - `lib/codebuddy-core.mjs` — OAuth, JWT decoding, CLI/craft identity headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
 - `lib/accounts.mjs` — the multi-account pool (read-through storage, CRUD, activate, lock, enable, cooldown, rotation, import/export, legacy migration).
 - `lib/runtime.mjs` — the shared operation layer both the tool and the web UI call (login/refresh/quota/sync/account control), so the two surfaces never drift.
-- `lib/web.mjs` + `lib/web-ui.mjs` — the `dsh-codebuddy-auth/web` plugin: mounts the `/codebuddy` settings/login page via `ctx.webServer.register` (loopback).
+- `lib/web.mjs` — the `dsh-codebuddy-auth/web` plugin: registers the same-origin `/codebuddy/api/*` routes the settings tab calls, via `ctx.webServer.register` (loopback).
+- `lib/client.js` — the browser client plugin (declared via `dsh.client`, auto-loaded by the web shell): a React panel registered into the built-in **设置 → 内置插件** as a **CodeBuddy** tab through the `settings.plugins.tab` slot. Hand-written `React.createElement` (no JSX/build), calling `/codebuddy/api/*`.
 - `bin/login-flow.mjs` — standalone login CLI (single-account bootstrap; its legacy tokens are adopted by the pool migration); no npm dependencies.
 - `cordis.patch.yml` — in-package patch (mounts both the main plugin and the `/web` UI row).
 
