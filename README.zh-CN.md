@@ -4,7 +4,7 @@
 
 在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、**多账户池**、**积分/额度查询**、**额度耗尽自动轮换**、token 自动续期、模型列表自动同步,并自带一个本机**设置/登录 Web UI**。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-1`、`minimax-m3` 等 craft agent 模型。
 
-> 版本要求:适配 **DSH 0.1.7 rc2**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.1.7-rc.2`)与 **CodeBuddy CLI v2.158.0**。因使用了 0.1.7 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.1.7 rc2 后再加载本插件。
+> 版本要求:适配 **DSH 0.2.0**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.2.0-rc.1`)与 **CodeBuddy CLI v2.158.0**。因使用了 0.1.7+ 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.2.0 后再加载本插件。
 
 ## 工作原理
 
@@ -115,7 +115,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 ## 文件
 
 - `lib/index.js` — Cordis 宿主插件(组合行)。注册 `codebuddy` provider 与 `codebuddy` 工具、持有账户池、驱动轮换与每 30 分钟续期/配额巡检。
-- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.1.7 rc2 消息模型):SSE 流式、消息序列化、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
+- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.2.0 / 0.1.7+ 消息模型):SSE 流式、消息序列化、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
 - `lib/codebuddy-core.mjs` — OAuth、JWT 解码、CLI/craft 身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
 - `lib/accounts.mjs` — 多账户池(读透式存储/增删改查/激活/锁定/禁用/冷却/轮换/导入导出/旧令牌迁移)。
 - `lib/runtime.mjs` — 工具与 Web UI 共享的操作层(登录/刷新/配额/同步/账户控制),两个面不会漂移。

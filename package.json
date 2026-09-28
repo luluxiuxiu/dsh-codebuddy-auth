@@ -1,6 +1,6 @@
 {
   "name": "dsh-codebuddy-auth",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "CodeBuddy (Tencent IOA) as a native DeepSeek Harness llm provider: browser OAuth login, multi-account pool with auto-rotation, remaining-credit quota, token auto-renewal, credential storage, /v3/config model sync, and a loopback settings/login web UI.",
   "type": "module",
   "main": "lib/index.js",
@@ -38,10 +38,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh-llm": "^0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-connection": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.0-rc.1",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {

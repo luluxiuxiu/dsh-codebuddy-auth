@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, a **multi-account pool**, **credit/quota lookup**, **auto-rotation on exhaustion**, automatic token renewal, model-list sync, and a built-in loopback **settings/login web UI**. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-1`, and `minimax-m3` appear in the model picker.
 
-> Version target: built for **DSH 0.1.7 rc2** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.1.7-rc.2`) and **CodeBuddy CLI v2.158.0**. It uses the 0.1.7 message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.1.7 rc2 before loading this plugin.
+> Version target: built for **DSH 0.2.0** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.2.0-rc.1`) and **CodeBuddy CLI v2.158.0**. It uses the 0.1.7+ message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.2.0 before loading this plugin.
 
 ## How it works
 
@@ -115,7 +115,7 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 ## Files
 
 - `lib/index.js` — the Cordis host plugin (composition row). Registers the `codebuddy` provider and tool, owns the account pool, and drives rotation + the 30-minute renewal/quota guard.
-- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.1.7 rc2 message model): SSE streaming, message serialization, reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
+- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.2.0 / 0.1.7+ message model): SSE streaming, message serialization, reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
 - `lib/codebuddy-core.mjs` — OAuth, JWT decoding, CLI/craft identity headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
 - `lib/accounts.mjs` — the multi-account pool (read-through storage, CRUD, activate, lock, enable, cooldown, rotation, import/export, legacy migration).
 - `lib/runtime.mjs` — the shared operation layer both the tool and the web UI call (login/refresh/quota/sync/account control), so the two surfaces never drift.
