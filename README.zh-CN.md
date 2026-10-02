@@ -85,6 +85,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 ## 使用
 
 - **切换模型**:模型选择器里选 CodeBuddy 下的任意模型(如 `deepseek-v4-pro`)
+- **图片**:任意 CodeBuddy 模型都能附图——craft 目录里每个模型都声明了 `supportsImages`,适配器会把每个仍在请求中的图片出现以 `{type:'image_url', image_url:{url:'data:…;base64,…'}}` 内联部件发出(即 `/v2/chat/completions` 实际解析的格式,已线上验证),并在其前带上 harness 的图片句柄文本。每个出现按 1 MiB / 2048² 预算重新编码;工具产出的图片以句柄文本挂在工具消息上(该 wire 的 `tool` 角色只承载文本);目录里被判为纯文本的模型(`supportsImages: false` 或 `disabledMultimodal: true`)则得到 harness 的确定性纯文本占位。
 - **状态**:"看下 codebuddy 状态" → `codebuddy` 工具 `status`
 - **续期(全自动,三层)**:① 每次启动时,token 剩余有效期不足 5 分钟(或已过期)即自动续;② 运行中每 30 分钟巡检,剩余不足 1 小时自动续——覆盖 dsh 长期不重启的场景;③ refresh token 失效(改密/吊销)时前两层会失败并留日志,此时说 "刷新 codebuddy" 确认,或重新登录
 - **模型更新**:腾讯上新模型后,说 "同步 codebuddy 模型" → `sync-models`
@@ -115,7 +116,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 ## 文件
 
 - `lib/index.js` — Cordis 宿主插件(组合行)。注册 `codebuddy` provider 与 `codebuddy` 工具、持有账户池、驱动轮换与每 30 分钟续期/配额巡检。
-- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.2.0 / 0.1.7+ 消息模型):SSE 流式、消息序列化、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
+- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.2.0 / 0.1.7+ 消息模型):SSE 流式、消息序列化、图片输入(持久化附件引用 → 内联 `image_url` 部件,含 offloaded/纯文本投影)、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
 - `lib/codebuddy-core.mjs` — OAuth、JWT 解码、CLI/craft 身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
 - `lib/accounts.mjs` — 多账户池(读透式存储/增删改查/激活/锁定/禁用/冷却/轮换/导入导出/旧令牌迁移)。
 - `lib/runtime.mjs` — 工具与 Web UI 共享的操作层(登录/刷新/配额/同步/账户控制),两个面不会漂移。

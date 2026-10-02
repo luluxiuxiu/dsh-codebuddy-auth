@@ -85,6 +85,7 @@ The adapter and the login/model-discovery endpoints then all use `www.codebuddy.
 ## Usage
 
 - **Switch models**: pick any model under CodeBuddy in the model picker (e.g. `deepseek-v4-pro`)
+- **Images**: attach an image to a message on any CodeBuddy model — every craft model advertises `supportsImages`, and the adapter sends each retained occurrence as an inline `{type:'image_url', image_url:{url:'data:…;base64,…'}}` part (the shape `/v2/chat/completions` parses, verified live) beside the harness's per-image handle text. Each occurrence is re-encoded for the request under a 1 MiB / 2048² budget, a tool-produced image rides its tool message as handle text (that wire's `tool` role carries text only), and a model the catalog marks text-only (`supportsImages: false` or `disabledMultimodal: true`) gets the harness's deterministic text-only placeholder instead.
 - **Status**: "check codebuddy status" → the `codebuddy` tool's `status` action
 - **Renewal (automatic, three layers)**: ① at every startup, the token is renewed when less than 5 minutes of validity remains (or it has already expired); ② while running, a check every 30 minutes renews whenever less than 1 hour remains — covering a long-lived dsh that never restarts; ③ if the refresh token itself is invalidated (password change / revocation), the first two layers fail and log it — then say "refresh codebuddy" to confirm, or log in again
 - **Model updates**: after Tencent ships new models, say "sync codebuddy models" → `sync-models`
@@ -115,7 +116,7 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 ## Files
 
 - `lib/index.js` — the Cordis host plugin (composition row). Registers the `codebuddy` provider and tool, owns the account pool, and drives rotation + the 30-minute renewal/quota guard.
-- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.2.0 / 0.1.7+ message model): SSE streaming, message serialization, reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
+- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.2.0 / 0.1.7+ message model): SSE streaming, message serialization, image input (durable attachment refs → inline `image_url` parts, offloaded/text-only projection), reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
 - `lib/codebuddy-core.mjs` — OAuth, JWT decoding, CLI/craft identity headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
 - `lib/accounts.mjs` — the multi-account pool (read-through storage, CRUD, activate, lock, enable, cooldown, rotation, import/export, legacy migration).
 - `lib/runtime.mjs` — the shared operation layer both the tool and the web UI call (login/refresh/quota/sync/account control), so the two surfaces never drift.
