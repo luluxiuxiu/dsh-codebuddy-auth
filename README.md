@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, a **multi-account pool**, **credit/quota lookup**, **auto-rotation on exhaustion**, automatic token renewal, model-list sync, and a built-in loopback **settings/login web UI**. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-1`, and `minimax-m3` appear in the model picker.
+Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, a **multi-account pool**, **credit/quota lookup**, **auto-rotation on exhaustion**, automatic token renewal, model-list sync, and a built-in loopback **settings/login web UI**. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-2`, and `minimax-m3-pay` appear in the model picker.
 
 > Version target: built for **DSH 0.2.0** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.2.0-rc.1`) and **CodeBuddy CLI v2.158.0**. It uses the 0.1.7+ message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.2.0 before loading this plugin.
 
@@ -95,8 +95,8 @@ The adapter and the login/model-discovery endpoints then all use `www.codebuddy.
 
 Each model is declared with its **full real reasoning capability** from `/v3/config`, so the model picker shows the levels each model actually offers:
 
-- **Selectable levels** (per model): `supportedEfforts` mirrors straight into the picker — `deepseek-v4-pro` offers `low` / `high` / `xhigh`, `hy3` offers `low` / `high`, fixed-effort models (e.g. `glm-5.1`) offer their single `medium`. Sent on the wire as `reasoning_effort: "<level>"`.
-- **Default level**: each model uses the `defaultEffort` its `/v3/config` entry reports (e.g. `glm-5.2` defaults to `high`); every declared level stays selectable in the picker.
+- **Selectable levels** (per model): an explicit `supportedEfforts` array mirrors straight into the picker — `deepseek-v4-pro` offers `low` / `high` / `xhigh`, `hy3` offers `low` / `high`. When the catalog withholds the set and reports only a single `reasoning.effort` (`kimi-k3-2`, `glm-5.1`, `minimax-m3-pay`), the adapter follows the CodeBuddy CLI's own reading — a withheld set is not an empty one — and offers the CLI baseline `low` / `medium` / `high` / `xhigh` (the CLI excludes `minimal` and keeps `max` for hand-typed `/effort max` only). Sent on the wire as `reasoning_effort: "<level>"`; every level was verified live against `/v2/chat/completions` on `kimi-k3-2` (all answer 200, and `xhigh` measurably raises thinking: 52 reasoning tokens vs 19 for `high`).
+- **Default level**: each model uses the `defaultEffort` its `/v3/config` entry reports (e.g. `glm-5.2` defaults to `high`); a model carrying only a bare `effort` uses that value (e.g. `kimi-k3-2` → `medium`). Every declared level stays selectable in the picker.
 
 ## Multi-account, credits & account switching
 

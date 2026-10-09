@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、**多账户池**、**积分/额度查询**、**额度耗尽自动轮换**、token 自动续期、模型列表自动同步,并自带一个本机**设置/登录 Web UI**。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-1`、`minimax-m3` 等 craft agent 模型。
+在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、**多账户池**、**积分/额度查询**、**额度耗尽自动轮换**、token 自动续期、模型列表自动同步,并自带一个本机**设置/登录 Web UI**。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-2`、`minimax-m3-pay` 等 craft agent 模型。
 
 > 版本要求:适配 **DSH 0.2.0**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.2.0-rc.1`)与 **CodeBuddy CLI v2.158.0**。因使用了 0.1.7+ 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.2.0 后再加载本插件。
 
@@ -95,8 +95,8 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 
 每个模型都按 `/v3/config` 报告的**完整真实推理能力**声明,模型选择器里展示该模型实际支持的等级:
 
-- **可选等级**(按模型):`supportedEfforts` 原样进选择器——`deepseek-v4-pro` 可选 `low` / `high` / `xhigh`,`hy3` 可选 `low` / `high`,固定等级模型(如 `glm-5.1`)只有 `medium` 一档。线上以 `reasoning_effort: "<level>"` 发送。
-- **默认等级**:每模型直接采用 `/v3/config` 报告的 `defaultEffort`(如 glm-5.2 默认 high),选择器里所有已声明等级仍可自由选。
+- **可选等级**(按模型):目录给出 `supportedEfforts` 时原样进选择器——`deepseek-v4-pro` 可选 `low` / `high` / `xhigh`,`hy3` 可选 `low` / `high`。目录**未给出**该数组、只报单值 `reasoning.effort` 的模型(`kimi-k3-2`、`glm-5.1`、`minimax-m3-pay`),按 CodeBuddy CLI 的同一口径处理——"未声明不等于没有":给出 CLI 的基座档位 `low` / `medium` / `high` / `xhigh`(CLI 不含 `minimal`;`max` 与 CLI 选择器一致,不做展示),而不是判为无档位。线上以 `reasoning_effort: "<level>"` 发送;各档已对 `/v2/chat/completions` 实测(`kimi-k3-2` 全档 200,`xhigh` 的 reasoning tokens 明显高于 `high`)。
+- **默认等级**:每模型直接采用 `/v3/config` 报告的 `defaultEffort`(如 glm-5.2 默认 high);只带单值 `effort` 的模型以该值为默认档(如 `kimi-k3-2` → `medium`),选择器里所有已声明等级仍可自由选。
 
 ## 多账户 / 积分 / 锁定切换
 
