@@ -12,7 +12,7 @@
 
 | 平面 | 身份 | 原因 |
 | --- | --- | --- |
-| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0` + `x-codebuddy-request: 1`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截。 |
+| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`、`X-IDE-Type/Name/Version: CLI`、`X-Agent-Intent: craft`、`X-Agent-Runtime: other`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截;这些都是真实 CLI 每个模型请求都会带的头。 |
 | 模型发现(`GET /v3/config`) | Craft / VSCode(`X-Agent-Intent: craft` + `X-IDE-*`) | craft 目录是唯一披露每模型推理元数据(`supportedEfforts`、`canDisableThinking`、`defaultEffort`)与精选模型列表的目录;CLI 目录同一端点只返回固定的 `effort` 值。 |
 
 模型目录缓存 5 分钟,可随时 `sync-models` 刷新。
@@ -128,7 +128,8 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 ## 已知限制(均为实测结论)
 
 - `POST /v2/chat/completions` **不校验 User-Agent**,任意 UA 均可;但必须 `stream: true`(非流式返回 `code 11101`)。DSH 的 llm 适配器本来就是流式,无需处理。
-- `GET /v3/config`(模型发现)需要 craft / VSCode 身份(`X-Agent-Intent: craft` + `X-IDE-*` 头)才会披露推理元数据;插件自己直接发请求完成。
+- `GET /v3/config`(模型发现)在两种目录之间的切换**只由 User-Agent 的品牌段决定**:`VSCode/… CodeBuddy/…` 返回 craft 目录(17 个工具模型、15 个 agent,带 `supportedEfforts`),`CLI/… CodeBuddy/…` 只返回 `cli` agent(20 个模型、单值 `effort`、无 `supportedEfforts`)。`X-IDE-Type`、`X-IDE-Version`、`X-Product-Version` 换什么都不影响结果。因此插件只在这一个直接请求上使用 VSCode/扩展身份(见 `fetchRemoteModels`)。
+- `x-codebuddy-request: 1` **不属于 CLI 的线上身份**:在 CLI 里它只作为本地网关/daemon/ACP 标记出现,从不出现在模型、账户、计费请求上。已实测去掉后:聊天 200 + SSE、`/v2/plugin/account` `code 0`、`/v2/billing/meter/get-user-resource` `code 0`,因此插件不再发送它。
 - CodeBuddy 对每个 craft 模型都报告 `supportsReasoning`。模型按真实推理能力声明(按 `supportedEfforts` 列出等级),因此推理可在模型选择器里直接选用,而非被剥离。
 
 ## License

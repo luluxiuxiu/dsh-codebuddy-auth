@@ -12,7 +12,7 @@ The plugin registers a **native `ctx.llm` adapter** on the `codebuddy` provider 
 
 | Plane | Identity | Why |
 | --- | --- | --- |
-| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0` + `x-codebuddy-request: 1`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. |
+| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`, `X-IDE-Type/Name/Version: CLI`, `X-Agent-Intent: craft`, `X-Agent-Runtime: other`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. All of these are headers the real CLI sends on every model request. |
 | Model discovery (`GET /v3/config`) | Craft / VSCode (`X-Agent-Intent: craft`, `X-IDE-*`) | The craft catalog is the only one disclosing per-model reasoning metadata (`supportedEfforts`, `canDisableThinking`, `defaultEffort`) and the curated model list. The CLI catalog answers the same endpoint but carries only fixed `effort` values. |
 
 The catalog is cached for 5 minutes and refreshed on demand (`sync-models`).
@@ -128,7 +128,8 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 ## Known limitations (all verified empirically)
 
 - `POST /v2/chat/completions` **does not check User-Agent** — any UA works; but the request must be `stream: true` (non-streaming returns `code 11101`). DSH's llm adapters are streaming by default, so nothing to handle.
-- `GET /v3/config` (model discovery) requires the craft / VSCode identity (`X-Agent-Intent: craft` + `X-IDE-*` headers) to disclose reasoning metadata; the plugin sends its own direct request for that.
+- `GET /v3/config` (model discovery) is switched between catalogs by the **User-Agent brand token alone**: `VSCode/… CodeBuddy/…` returns the craft catalog (17 tool models, 15 agents, with `supportedEfforts`), while `CLI/… CodeBuddy/…` returns only the `cli` agent (20 models, single `effort` values, no `supportedEfforts`). `X-IDE-Type`, `X-IDE-Version` and `X-Product-Version` do not change the answer. The plugin therefore sends the VSCode/extension identity on that one direct request (see `fetchRemoteModels`).
+- `x-codebuddy-request: 1` is **not** part of the CLI's wire identity: in the CLI it only ever appears as a local gateway / daemon / ACP marker, never on model, account or billing calls. Verified live without it — chat 200 + SSE, `/v2/plugin/account` `code 0`, `/v2/billing/meter/get-user-resource` `code 0` — so the plugin no longer sends it.
 - CodeBuddy reports `supportsReasoning` on every craft model. Models are declared with their real reasoning capability (levels per `supportedEfforts`), so reasoning is selectable in the model picker rather than stripped.
 
 ## License
