@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, a **multi-account pool**, **credit/quota lookup**, **auto-rotation on exhaustion**, automatic token renewal, model-list sync, and a built-in loopback **settings/login web UI**. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-2`, and `minimax-m3-pay` appear in the model picker.
 
-> Version target: built for **DSH 0.2.0** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.2.0-rc.1`) and **CodeBuddy CLI v2.158.0**. It uses the 0.1.7+ message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.2.0 before loading this plugin.
+> Version target: built for **DSH 0.2.0** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.2.0-rc.1`) and **CodeBuddy CLI v2.168.0**. It uses the 0.1.7+ message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.2.0 before loading this plugin.
 
 ## How it works
 
@@ -12,7 +12,7 @@ The plugin registers a **native `ctx.llm` adapter** on the `codebuddy` provider 
 
 | Plane | Identity | Why |
 | --- | --- | --- |
-| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.158.0 CodeBuddy/2.158.0` + `x-codebuddy-request: 1`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. |
+| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0` + `x-codebuddy-request: 1`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. |
 | Model discovery (`GET /v3/config`) | Craft / VSCode (`X-Agent-Intent: craft`, `X-IDE-*`) | The craft catalog is the only one disclosing per-model reasoning metadata (`supportedEfforts`, `canDisableThinking`, `defaultEffort`) and the curated model list. The CLI catalog answers the same endpoint but carries only fixed `effort` values. |
 
 The catalog is cached for 5 minutes and refreshed on demand (`sync-models`).

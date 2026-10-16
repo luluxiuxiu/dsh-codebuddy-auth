@@ -4,7 +4,7 @@
 
 在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、**多账户池**、**积分/额度查询**、**额度耗尽自动轮换**、token 自动续期、模型列表自动同步,并自带一个本机**设置/登录 Web UI**。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-2`、`minimax-m3-pay` 等 craft agent 模型。
 
-> 版本要求:适配 **DSH 0.2.0**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.2.0-rc.1`)与 **CodeBuddy CLI v2.158.0**。因使用了 0.1.7+ 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.2.0 后再加载本插件。
+> 版本要求:适配 **DSH 0.2.0**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.2.0-rc.1`)与 **CodeBuddy CLI v2.168.0**。因使用了 0.1.7+ 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.2.0 后再加载本插件。
 
 ## 工作原理
 
@@ -12,7 +12,7 @@
 
 | 平面 | 身份 | 原因 |
 | --- | --- | --- |
-| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.158.0 CodeBuddy/2.158.0` + `x-codebuddy-request: 1`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截。 |
+| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0` + `x-codebuddy-request: 1`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截。 |
 | 模型发现(`GET /v3/config`) | Craft / VSCode(`X-Agent-Intent: craft` + `X-IDE-*`) | craft 目录是唯一披露每模型推理元数据(`supportedEfforts`、`canDisableThinking`、`defaultEffort`)与精选模型列表的目录;CLI 目录同一端点只返回固定的 `effort` 值。 |
 
 模型目录缓存 5 分钟,可随时 `sync-models` 刷新。
