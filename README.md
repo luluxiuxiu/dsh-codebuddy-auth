@@ -12,7 +12,7 @@ The plugin registers a **native `ctx.llm` adapter** on the `codebuddy` provider 
 
 | Plane | Identity | Why |
 | --- | --- | --- |
-| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`, `X-IDE-Type/Name/Version: CLI`, `X-Agent-Intent: craft`, `X-Agent-Runtime: other`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. All of these are headers the real CLI sends on every model request. |
+| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`, `X-IDE-Type/Name/Version: CLI`, `X-Agent-Intent: craft`, `X-Agent-Runtime: other`, `X-Agent-Type: main`, `X-Conversation-Id` / `-Request-Id` / `-Message-Id` + `X-Request-Id`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. All of these are headers the real CLI sends on every model request. The conversation ids are what key the gateway's prompt cache (see below). |
 | Model discovery (`GET /v3/config`) | Craft / VSCode (`X-Agent-Intent: craft`, `X-IDE-*`) | The craft catalog is the only one disclosing per-model reasoning metadata (`supportedEfforts`, `canDisableThinking`, `defaultEffort`) and the curated model list. The CLI catalog answers the same endpoint but carries only fixed `effort` values. |
 
 The catalog is cached for 5 minutes and refreshed on demand (`sync-models`).
@@ -116,7 +116,7 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 ## Files
 
 - `lib/index.js` — the Cordis host plugin (composition row). Registers the `codebuddy` provider and tool, owns the account pool, and drives rotation + the 30-minute renewal/quota guard.
-- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.2.0 / 0.1.7+ message model): SSE streaming, message serialization, image input (durable attachment refs → inline `image_url` parts, offloaded/text-only projection), reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
+- `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.2.0 / 0.1.7+ message model): SSE streaming, message serialization, session → `X-Conversation-*` mapping (prompt-cache grouping), image input (durable attachment refs → inline `image_url` parts, offloaded/text-only projection), reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
 - `lib/codebuddy-core.mjs` — OAuth, JWT decoding, CLI/craft identity headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
 - `lib/accounts.mjs` — the multi-account pool (read-through storage, CRUD, activate, lock, enable, cooldown, rotation, import/export, legacy migration).
 - `lib/runtime.mjs` — the shared operation layer both the tool and the web UI call (login/refresh/quota/sync/account control), so the two surfaces never drift.
@@ -130,6 +130,16 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 - `POST /v2/chat/completions` **does not check User-Agent** — any UA works; but the request must be `stream: true` (non-streaming returns `code 11101`). DSH's llm adapters are streaming by default, so nothing to handle.
 - `GET /v3/config` (model discovery) is switched between catalogs by the **User-Agent brand token alone**: `VSCode/… CodeBuddy/…` returns the craft catalog (17 tool models, 15 agents, with `supportedEfforts`), while `CLI/… CodeBuddy/…` returns only the `cli` agent (20 models, single `effort` values, no `supportedEfforts`). `X-IDE-Type`, `X-IDE-Version` and `X-Product-Version` do not change the answer. The plugin therefore sends the VSCode/extension identity on that one direct request (see `fetchRemoteModels`).
 - `x-codebuddy-request: 1` is **not** part of the CLI's wire identity: in the CLI it only ever appears as a local gateway / daemon / ACP marker, never on model, account or billing calls. Verified live without it — chat 200 + SSE, `/v2/plugin/account` `code 0`, `/v2/billing/meter/get-user-resource` `code 0` — so the plugin no longer sends it.
+- The chat gateway's **prompt cache is grouped by `X-Conversation-Id`**, not by prompt prefix alone. Measured on a 2800-token prompt sent twice, 8s apart, through the adapter itself:
+
+  | `X-Conversation-Id` | second turn |
+  | --- | --- |
+  | stable (one per DSH session) | `inputTokens=112 cacheReadTokens=2688` (96% reused) |
+  | absent | `inputTokens=2800 cacheReadTokens=0` (full price) |
+  | a fresh id every turn | `cacheReadTokens=0` |
+
+  So the adapter maps `options.sessionId` (stamped by the loop) onto the CLI's conversation headers: `X-Conversation-Id` is the session, `X-Conversation-Request-Id` anchors the user turn (the loop keeps the originating user message — and its id — across every tool-loop iteration, so a tool round stays one request), and `X-Conversation-Message-Id`/`X-Request-Id` identify the single model call. `X-Session-Id` is deliberately absent: the CLI declares it but never sets it on model requests.
+- `X-Agent-Type` classifies the call for backend attribution. The CLI sends it on every model request (`main` / `subagent` / `team` for conversation calls, `compaction` for `context_compact` + `context_summary_*`, `auxiliary` for the auxiliary purposes incl. `conversation_topic` = titles); DSH exposes two of those classes through `options.purpose`, so the adapter maps `unset → main`, `'compaction' → compaction`, `'session-title' → auxiliary`. The CLI's user-facing `/compact` is `conversation:compact`, which it types as `main` — DSH's `purpose: 'compaction'` is not that: it fires from context pressure / idle-session compaction, i.e. the harness-driven compaction the CLI types as `compaction`. Measured: the value changes nothing observable (identical status, usage and SSE frame keys for all four values) and does not partition the prompt-cache bucket, so it is attribution only. The VSCode extension never sends this header (0 occurrences in its bundle); DSH has no equivalent of the CLI's subagent/team session metadata, so those calls report `main`.
 - CodeBuddy reports `supportsReasoning` on every craft model. Models are declared with their real reasoning capability (levels per `supportedEfforts`), so reasoning is selectable in the model picker rather than stripped.
 
 ## License

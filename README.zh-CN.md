@@ -12,7 +12,7 @@
 
 | 平面 | 身份 | 原因 |
 | --- | --- | --- |
-| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`、`X-IDE-Type/Name/Version: CLI`、`X-Agent-Intent: craft`、`X-Agent-Runtime: other`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截;这些都是真实 CLI 每个模型请求都会带的头。 |
+| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`、`X-IDE-Type/Name/Version: CLI`、`X-Agent-Intent: craft`、`X-Agent-Runtime: other`、`X-Agent-Type: main`、`X-Conversation-Id` / `-Request-Id` / `-Message-Id` + `X-Request-Id`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截;这些都是真实 CLI 每个模型请求都会带的头。会话 id 是网关 prompt cache 的分组键(见下)。 |
 | 模型发现(`GET /v3/config`) | Craft / VSCode(`X-Agent-Intent: craft` + `X-IDE-*`) | craft 目录是唯一披露每模型推理元数据(`supportedEfforts`、`canDisableThinking`、`defaultEffort`)与精选模型列表的目录;CLI 目录同一端点只返回固定的 `effort` 值。 |
 
 模型目录缓存 5 分钟,可随时 `sync-models` 刷新。
@@ -116,7 +116,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 ## 文件
 
 - `lib/index.js` — Cordis 宿主插件(组合行)。注册 `codebuddy` provider 与 `codebuddy` 工具、持有账户池、驱动轮换与每 30 分钟续期/配额巡检。
-- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.2.0 / 0.1.7+ 消息模型):SSE 流式、消息序列化、图片输入(持久化附件引用 → 内联 `image_url` 部件,含 offloaded/纯文本投影)、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
+- `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.2.0 / 0.1.7+ 消息模型):SSE 流式、消息序列化、session → `X-Conversation-*` 映射(prompt cache 分组)、图片输入(持久化附件引用 → 内联 `image_url` 部件,含 offloaded/纯文本投影)、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
 - `lib/codebuddy-core.mjs` — OAuth、JWT 解码、CLI/craft 身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
 - `lib/accounts.mjs` — 多账户池(读透式存储/增删改查/激活/锁定/禁用/冷却/轮换/导入导出/旧令牌迁移)。
 - `lib/runtime.mjs` — 工具与 Web UI 共享的操作层(登录/刷新/配额/同步/账户控制),两个面不会漂移。
@@ -130,6 +130,16 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 - `POST /v2/chat/completions` **不校验 User-Agent**,任意 UA 均可;但必须 `stream: true`(非流式返回 `code 11101`)。DSH 的 llm 适配器本来就是流式,无需处理。
 - `GET /v3/config`(模型发现)在两种目录之间的切换**只由 User-Agent 的品牌段决定**:`VSCode/… CodeBuddy/…` 返回 craft 目录(17 个工具模型、15 个 agent,带 `supportedEfforts`),`CLI/… CodeBuddy/…` 只返回 `cli` agent(20 个模型、单值 `effort`、无 `supportedEfforts`)。`X-IDE-Type`、`X-IDE-Version`、`X-Product-Version` 换什么都不影响结果。因此插件只在这一个直接请求上使用 VSCode/扩展身份(见 `fetchRemoteModels`)。
 - `x-codebuddy-request: 1` **不属于 CLI 的线上身份**:在 CLI 里它只作为本地网关/daemon/ACP 标记出现,从不出现在模型、账户、计费请求上。已实测去掉后:聊天 200 + SSE、`/v2/plugin/account` `code 0`、`/v2/billing/meter/get-user-resource` `code 0`,因此插件不再发送它。
+- 聊天网关的 **prompt cache 按 `X-Conversation-Id` 分组**,不是仅按前缀。用 2800 token 的 prompt 间隔 8 秒经适配器连发两次实测:
+
+  | `X-Conversation-Id` | 第二轮 |
+  | --- | --- |
+  | 稳定(每个 DSH session 一个) | `inputTokens=112 cacheReadTokens=2688`(复用 96%) |
+  | 完全不发 | `inputTokens=2800 cacheReadTokens=0`(全价) |
+  | 每轮都换一个 | `cacheReadTokens=0` |
+
+  因此适配器把 loop 打上的 `options.sessionId` 映射成 CLI 的会话头:`X-Conversation-Id` 是会话,`X-Conversation-Request-Id` 锚定用户轮次(工具循环里 loop 一直沿用发起该轮的用户消息及其 id,所以一个工具轮仍算同一个 request),`X-Conversation-Message-Id`/`X-Request-Id` 标识单次模型调用。`X-Session-Id` 有意不发:CLI 声明了它但从不写在模型请求上。
+- `X-Agent-Type` 用于后端对调用分类。CLI 每个模型请求都发(`main` / `subagent` / `team` 用于会话调用,`compaction` 用于 `context_compact` + `context_summary_*`,`auxiliary` 用于辅助用途包括 `conversation_topic` = 标题生成);DSH 通过 `options.purpose` 暴露其中两类,故适配器映射为:未设 → `main`,`'compaction'` → `compaction`,`'session-title'` → `auxiliary`。注意 CLI 面向用户的 `/compact` 走的是 `conversation:compact`,被它归为 `main`——DSH 的 `purpose: 'compaction'` 不是这个:它由上下文压力/空闲会话压缩触发,即 CLI 归为 `compaction` 的那类 harness 驱动压缩。实测:该值对可观测行为无影响(四种取值下 status、usage、SSE 帧结构完全一致),也不参与 prompt cache 分组,纯归属标记。VSCode 扩展完全不发这个头(产物里出现 0 次);DSH 也没有 CLI 那套 subagent/team 会话元数据,所以那类调用报 `main`。
 - CodeBuddy 对每个 craft 模型都报告 `supportsReasoning`。模型按真实推理能力声明(按 `supportedEfforts` 列出等级),因此推理可在模型选择器里直接选用,而非被剥离。
 
 ## License
