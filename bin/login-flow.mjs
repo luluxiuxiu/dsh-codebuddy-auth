@@ -22,6 +22,8 @@
  *   node bin/login-flow.mjs --no-browser    # fresh flow, prints the URL only
  *   node bin/login-flow.mjs --state FILE    # resume a flow started elsewhere
  *   node bin/login-flow.mjs --international # OAuth against codebuddy.ai (international)
+ *   node bin/login-flow.mjs --client cli    # register the credential as a CLI
+ *                                           # client (default: ide, the official IDE)
  */
 import { existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -72,12 +74,20 @@ async function main() {
   const international = args.includes('--international');
   const stateIdx = args.indexOf('--state');
   const stateFile = stateIdx >= 0 ? args[stateIdx + 1] : null;
+  const clientIdx = args.indexOf('--client');
+  const clientArg = clientIdx >= 0 ? args[clientIdx + 1] : process.env.CODEBUDDY_CLIENT;
 
   // Region: China edition (default) vs international (codebuddy.ai). Region
   // values are centralized in EDITIONS; --international just picks that one.
-  const cfg = cfgForEdition(international ? 'intl' : 'cn');
+  //
+  // Client identity: the handshake `platform` decides how upstream files this
+  // credential, so it must be the client the plugin will chat as. Default is
+  // the official IDE ("ide"); --client cli reproduces the old CLI registration.
+  const cfg = cfgForEdition(international ? 'intl' : 'cn', clientArg);
   if (international) console.log(`[login] using ${EDITIONS.intl.label} endpoints (${EDITIONS.intl.serverUrl})`);
   else console.log(`[login] using ${EDITIONS.cn.label} edition endpoints (${EDITIONS.cn.serverUrl})`);
+  console.log(`[login] client: ${cfg.profile.label} — auth platform="${cfg.profile.authPlatform}", `
+    + `User-Agent "${cfg.profile.platform}/${cfg.profile.version} ${cfg.profile.productName}/${cfg.profile.productVersion}"`);
 
   let state;
   if (stateFile && existsSync(stateFile)) {

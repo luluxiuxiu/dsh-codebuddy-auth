@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 Use [Tencent CodeBuddy](https://www.codebuddy.cn) (IOA) chat models directly in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH): browser OAuth login, a **multi-account pool**, **credit/quota lookup**, **auto-rotation on exhaustion**, automatic token renewal, model-list sync, and a built-in loopback **settings/login web UI**. Log in once, and craft-agent models such as `deepseek-v4-pro`, `glm-5.2`, `kimi-k3-2`, and `minimax-m3-pay` appear in the model picker.
 
-> Version target: built for **DSH 0.2.0** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.2.0-rc.1`) and **CodeBuddy CLI v2.168.0**. It uses the 0.1.7+ message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.2.0 before loading this plugin.
+> Version target: built for **DSH 0.2.0** (peer deps `@deepseek-ai/cordis ~4.0.4`, `@deepseek-ai/dsh-llm ^0.2.0-rc.1`). It speaks as the **official CodeBuddy IDE 4.12.2** by default (`X-IDE-Type: CodeBuddyIDE`, handshake `platform=ide`); the CodeBuddy CLI (`v2.168.0`) and the VS Code extension identities stay selectable. It uses the 0.1.7+ message model (`ToolCallId`, first-class `role:'tool'` messages), so upgrade the runtime to 0.2.0 before loading this plugin.
 
 ## How it works
 
@@ -12,8 +12,21 @@ The plugin registers a **native `ctx.llm` adapter** on the `codebuddy` provider 
 
 | Plane | Identity | Why |
 | --- | --- | --- |
-| Chat (`POST /v2/chat/completions`) | CLI client (`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`, `X-IDE-Type/Name/Version: CLI`, `X-Agent-Intent: craft`, `X-Agent-Runtime: other`, `X-Agent-Type: main`, `X-Conversation-Id` / `-Request-Id` / `-Message-Id` + `X-Request-Id`) | The CLI identity is what the chat endpoint expects; using it avoids IDE-identity blocks. All of these are headers the real CLI sends on every model request. The conversation ids are what key the gateway's prompt cache (see below). |
-| Model discovery (`GET /v3/config`) | Craft / VSCode (`X-Agent-Intent: craft`, `X-IDE-*`) | The craft catalog is the only one disclosing per-model reasoning metadata (`supportedEfforts`, `canDisableThinking`, `defaultEffort`) and the curated model list. The CLI catalog answers the same endpoint but carries only fixed `effort` values. |
+| OAuth handshake (`POST /v2/plugin/auth/state`) + chat (`POST /v2/chat/completions`) + account/billing | **Official CodeBuddy IDE** by default (`User-Agent: CodeBuddyIDE/4.12.2 CodeBuddy/4.12.2`, `X-IDE-Type/Name: CodeBuddyIDE`, `X-IDE-Version: 4.12.2`, `X-Product-Version: 4.12.2`, `X-Agent-Intent: craft`, `X-Agent-Type: main`, `X-Conversation-Id` / `-Request-Id` / `-Message-Id` + `X-Request-Id`, `X-Request-Trace-Id`), with `?platform=ide` on the handshake | Upstream files a credential by the **handshake `platform`** *and* by the per-request UA/`X-IDE-*`. Sending `platform=CLI` (or `CLI/... CodeBuddy/...`) makes the account read as a **CLI client** no matter what the chat headers say — the exact bug this release fixes. The IDE values are read off the installed official IDE (`resources/app/product.json` → `genieVersion`, `extensions/genie/product.json` → `platform: "CodeBuddyIDE"`, `authentication.attributes.platform: "ide"`). The conversation ids still key the gateway's prompt cache (see below). |
+| Model discovery (`GET /v3/config`) | Craft / VSCode (`User-Agent: VSCode/… CodeBuddy/…`, `X-Agent-Intent: craft`, `X-IDE-*`, `X-Env-ID`) | The craft catalog is the only one disclosing per-model reasoning metadata (`supportedEfforts`, `canDisableThinking`, `defaultEffort`) and the curated model list. The catalog switch is the UA brand token alone, and it is a discovery call — no credential attribution rides on it. |
+
+Three client profiles ship in `CLIENT_PROFILES` (`lib/codebuddy-core.mjs`): `ide` (default), `vscode`, `cli`. Pick one per deployment:
+
+```yaml
+# your cordis.patch.yml mount row:
+- id: codebuddy-auth
+  name: dsh-codebuddy-auth
+  client: ide            # ide (default) | vscode | cli
+```
+
+`CODEBUDDY_CLIENT` does the same from the environment, and **the settings panel has an “outbound identity” selector** (设置 → 内置插件 → CodeBuddy) that switches it at runtime: the choice is persisted in `ctx.credentials` (`CODEBUDDY_CLIENT_PROFILE`), both plugin fibers converge on it within ~3 s, and the very next request (including the login handshake) uses it. The panel header shows the live identity and its UA.
+
+Switching profiles **does not rewrite an existing credential's registration** — log in again after changing it (`codebuddy` tool `login`, or the panel's “add account”).
 
 The catalog is cached for 5 minutes and refreshed on demand (`sync-models`).
 
@@ -117,7 +130,8 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 
 - `lib/index.js` — the Cordis host plugin (composition row). Registers the `codebuddy` provider and tool, owns the account pool, and drives rotation + the 30-minute renewal/quota guard.
 - `lib/codebuddy-adapter.mjs` — the native `ctx.llm` adapter (DSH 0.2.0 / 0.1.7+ message model): SSE streaming, message serialization, session → `X-Conversation-*` mapping (prompt-cache grouping), image input (durable attachment refs → inline `image_url` parts, offloaded/text-only projection), reasoning metadata, error mapping, account-level failure callback. Ported from [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy) (MIT).
-- `lib/codebuddy-core.mjs` — OAuth, JWT decoding, CLI/craft identity headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
+- `lib/codebuddy-core.mjs` — OAuth, JWT decoding, the `CLIENT_PROFILES` identity table (IDE / VS Code / CLI, with the evidence for each header), profile-driven wire headers, `/v3/config` discovery, `/v2/plugin/account` identity, and `/v2/billing/meter/get-user-resource` quota; dependency-free.
+- `lib/client-profile.mjs` — persists the panel's outbound-identity choice in `ctx.credentials` and keeps both plugin fibers converged (3 s TTL); the deployment config/env is only the fallback.
 - `lib/accounts.mjs` — the multi-account pool (read-through storage, CRUD, activate, lock, enable, cooldown, rotation, import/export, legacy migration).
 - `lib/runtime.mjs` — the shared operation layer both the tool and the web UI call (login/refresh/quota/sync/account control), so the two surfaces never drift.
 - `lib/web.mjs` — the `dsh-codebuddy-auth/web` plugin: registers the same-origin `/codebuddy/api/*` routes the settings tab calls, via `ctx.webServer.register` (loopback).
@@ -128,6 +142,7 @@ Credits are queried from `POST /v2/billing/meter/get-user-resource` (verified li
 ## Known limitations (all verified empirically)
 
 - `POST /v2/chat/completions` **does not check User-Agent** — any UA works; but the request must be `stream: true` (non-streaming returns `code 11101`). DSH's llm adapters are streaming by default, so nothing to handle.
+- **The client identity is registered at the OAuth handshake**, not by the chat headers: `POST /v2/plugin/auth/state?platform=<value>` is what upstream stores for the credential (official IDE sends `authentication.attributes.platform` = `ide`; the CLI sends `CLI`). Changing only the UA afterwards leaves the account filed as whatever the handshake said — re-login after switching `client`.
 - `GET /v3/config` (model discovery) is switched between catalogs by the **User-Agent brand token alone**: `VSCode/… CodeBuddy/…` returns the craft catalog (17 tool models, 15 agents, with `supportedEfforts`), while `CLI/… CodeBuddy/…` returns only the `cli` agent (20 models, single `effort` values, no `supportedEfforts`). `X-IDE-Type`, `X-IDE-Version` and `X-Product-Version` do not change the answer. The plugin therefore sends the VSCode/extension identity on that one direct request (see `fetchRemoteModels`).
 - `x-codebuddy-request: 1` is **not** part of the CLI's wire identity: in the CLI it only ever appears as a local gateway / daemon / ACP marker, never on model, account or billing calls. Verified live without it — chat 200 + SSE, `/v2/plugin/account` `code 0`, `/v2/billing/meter/get-user-resource` `code 0` — so the plugin no longer sends it.
 - The chat gateway's **prompt cache is grouped by `X-Conversation-Id`**, not by prompt prefix alone. Measured on a 2800-token prompt sent twice, 8s apart, through the adapter itself:

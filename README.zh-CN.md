@@ -4,7 +4,7 @@
 
 在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(DSH) 里直接使用[腾讯 CodeBuddy](https://www.codebuddy.cn)(IOA)的对话模型:浏览器 OAuth 登录、**多账户池**、**积分/额度查询**、**额度耗尽自动轮换**、token 自动续期、模型列表自动同步,并自带一个本机**设置/登录 Web UI**。登录一次,模型选择器里即可选用 `deepseek-v4-pro`、`glm-5.2`、`kimi-k3-2`、`minimax-m3-pay` 等 craft agent 模型。
 
-> 版本要求:适配 **DSH 0.2.0**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.2.0-rc.1`)与 **CodeBuddy CLI v2.168.0**。因使用了 0.1.7+ 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.2.0 后再加载本插件。
+> 版本要求:适配 **DSH 0.2.0**(peer 依赖 `@deepseek-ai/cordis ~4.0.4`、`@deepseek-ai/dsh-llm ^0.2.0-rc.1`)。默认以**官方 CodeBuddy IDE 4.12.2** 的身份出网(`X-IDE-Type: CodeBuddyIDE`、授权握手 `platform=ide`);CodeBuddy CLI(`v2.168.0`)与 VS Code 插件两套身份仍可切换。因使用了 0.1.7+ 的消息模型(`ToolCallId`、`role:'tool'` 一等消息),需将运行时升到 0.2.0 后再加载本插件。
 
 ## 工作原理
 
@@ -12,8 +12,19 @@
 
 | 平面 | 身份 | 原因 |
 | --- | --- | --- |
-| 聊天(`POST /v2/chat/completions`) | CLI 客户端(`User-Agent: CLI/2.168.0 CodeBuddy/2.168.0`、`X-IDE-Type/Name/Version: CLI`、`X-Agent-Intent: craft`、`X-Agent-Runtime: other`、`X-Agent-Type: main`、`X-Conversation-Id` / `-Request-Id` / `-Message-Id` + `X-Request-Id`) | 聊天端点期待 CLI 身份,用它可避开 IDE 身份拦截;这些都是真实 CLI 每个模型请求都会带的头。会话 id 是网关 prompt cache 的分组键(见下)。 |
-| 模型发现(`GET /v3/config`) | Craft / VSCode(`X-Agent-Intent: craft` + `X-IDE-*`) | craft 目录是唯一披露每模型推理元数据(`supportedEfforts`、`canDisableThinking`、`defaultEffort`)与精选模型列表的目录;CLI 目录同一端点只返回固定的 `effort` 值。 |
+| 授权握手(`POST /v2/plugin/auth/state`)+ 聊天(`POST /v2/chat/completions`)+ 账户/计费 | 默认**官方 CodeBuddy IDE**(`User-Agent: CodeBuddyIDE/4.12.2 CodeBuddy/4.12.2`、`X-IDE-Type/Name: CodeBuddyIDE`、`X-IDE-Version: 4.12.2`、`X-Product-Version: 4.12.2`、`X-Agent-Intent: craft`、`X-Agent-Type: main`、`X-Conversation-Id` / `-Request-Id` / `-Message-Id` + `X-Request-Id`、`X-Request-Trace-Id`),握手带 `?platform=ide` | 上游在**两个地方**判定客户端:授权握手的 `platform`(决定这条凭证被登记成谁)与每个请求的 UA/`X-IDE-*`。只发 `platform=CLI`(或 `CLI/... CodeBuddy/...`)会让账号在上游侧一直是 **CLI 客户端**,聊天头怎么改都没用——这就是本版修掉的问题。IDE 取值来自本机安装的官方 IDE(`resources/app/product.json` 的 `genieVersion`、`extensions/genie/product.json` 的 `platform: "CodeBuddyIDE"` 与 `authentication.attributes.platform: "ide"`)。会话 id 仍是网关 prompt cache 的分组键(见下)。 |
+| 模型发现(`GET /v3/config`) | Craft / VSCode(`User-Agent: VSCode/… CodeBuddy/…`、`X-Agent-Intent: craft`、`X-IDE-*`、`X-Env-ID`) | craft 目录是唯一披露每模型推理元数据(`supportedEfforts`、`canDisableThinking`、`defaultEffort`)与精选模型列表的目录;目录切换只由 UA 品牌段决定,且这是发现类调用,不承担凭证归类。 |
+
+`CLIENT_PROFILES`(`lib/codebuddy-core.mjs`)内置三套身份:`ide`(默认)、`vscode`、`cli`。按部署选一套:
+
+```yaml
+# 你的 cordis.patch.yml 挂载行:
+- id: codebuddy-auth
+  name: dsh-codebuddy-auth
+  client: ide            # ide(默认)| vscode | cli
+```
+
+环境变量 `CODEBUDDY_CLIENT` 等价;**设置面板里也有「出站身份」选择框**(设置 → 内置插件 → CodeBuddy),运行期即可切换:选择持久化在 `ctx.credentials`(`CODEBUDDY_CLIENT_PROFILE`),主插件与 `/web` 面板两个 fiber 约 3 秒内收敛,下一个请求(含登录握手)就按新身份走;面板标题右侧实时显示当前身份与 UA。**切换身份不会改写已存在凭证的登记**:换完请重新登录一次(`codebuddy` 工具的 `login`,或面板「添加账户」)。
 
 模型目录缓存 5 分钟,可随时 `sync-models` 刷新。
 
@@ -45,7 +56,7 @@ dsh plugin --profile web add github:cainiao1992/dsh-codebuddy-auth
 
 ### 方式一:通过 agent
 
-对 agent 说 **"用 codebuddy 登录"**。agent 调用 `codebuddy` 工具:浏览器打开 IOA 登录页,后台轮询;token 到手后写入凭据并预热模型目录,下一个请求即以 CLI 身份直连聊天端点。
+对 agent 说 **"用 codebuddy 登录"**。agent 调用 `codebuddy` 工具:浏览器打开 IOA 登录页,后台轮询;token 到手后写入凭据并预热模型目录,下一个请求即以当前客户端身份(默认官方 IDE)直连聊天端点。
 
 ### 方式二:命令行(headless / 提前引导)
 
@@ -82,6 +93,14 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 
 适配器与登录/模型发现随即全部使用 `www.codebuddy.ai` 端点。CLI 的 `--international` 仅为登录选择国际 OAuth 端点。
 
+出站客户端身份同理,由挂载行的 `client: ide | vscode | cli` 选择(默认 `ide`,即官方 IDE;`CODEBUDDY_CLIENT` 环境变量等价):
+
+```yaml
+- id: codebuddy-auth
+  name: dsh-codebuddy-auth
+  client: ide            # ide(默认)| vscode | cli
+```
+
 ## 使用
 
 - **切换模型**:模型选择器里选 CodeBuddy 下的任意模型(如 `deepseek-v4-pro`)
@@ -117,7 +136,8 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 
 - `lib/index.js` — Cordis 宿主插件(组合行)。注册 `codebuddy` provider 与 `codebuddy` 工具、持有账户池、驱动轮换与每 30 分钟续期/配额巡检。
 - `lib/codebuddy-adapter.mjs` — 原生 `ctx.llm` 适配器(适配 DSH 0.2.0 / 0.1.7+ 消息模型):SSE 流式、消息序列化、session → `X-Conversation-*` 映射(prompt cache 分组)、图片输入(持久化附件引用 → 内联 `image_url` 部件,含 offloaded/纯文本投影)、推理元数据、错误映射、账户级失败回调。移植自 [shatyuka/dsh-llm-codebuddy](https://github.com/shatyuka/dsh-llm-codebuddy)(MIT)。
-- `lib/codebuddy-core.mjs` — OAuth、JWT 解码、CLI/craft 身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
+- `lib/codebuddy-core.mjs` — OAuth、JWT 解码、`CLIENT_PROFILES` 身份表(IDE / VS Code / CLI,每个头都附取值依据)、按 profile 生成线上身份头、`/v3/config` 发现、`/v2/plugin/account` 身份、`/v2/billing/meter/get-user-resource` 配额;无依赖。
+- `lib/client-profile.mjs` — 持久化面板选的出站身份(`ctx.credentials`),并让两个 fiber 3 秒内收敛;部署配置与环境变量只是它的回退值。
 - `lib/accounts.mjs` — 多账户池(读透式存储/增删改查/激活/锁定/禁用/冷却/轮换/导入导出/旧令牌迁移)。
 - `lib/runtime.mjs` — 工具与 Web UI 共享的操作层(登录/刷新/配额/同步/账户控制),两个面不会漂移。
 - `lib/web.mjs` — `dsh-codebuddy-auth/web` 独立插件，经 `ctx.webServer.register` 注册设置 tab 同源调用的 `/codebuddy/api/*` 路由（仅 loopback）。
@@ -128,6 +148,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 ## 已知限制(均为实测结论)
 
 - `POST /v2/chat/completions` **不校验 User-Agent**,任意 UA 均可;但必须 `stream: true`(非流式返回 `code 11101`)。DSH 的 llm 适配器本来就是流式,无需处理。
+- **客户端身份是在授权握手时登记的**,不是聊天头:上游把 `POST /v2/plugin/auth/state?platform=<值>` 记在这条凭证上(官方 IDE 取 `authentication.attributes.platform` = `ide`,CLI 取 `CLI`)。事后只改 UA 不会改写登记结果——切换 `client` 后请重新登录。
 - `GET /v3/config`(模型发现)在两种目录之间的切换**只由 User-Agent 的品牌段决定**:`VSCode/… CodeBuddy/…` 返回 craft 目录(17 个工具模型、15 个 agent,带 `supportedEfforts`),`CLI/… CodeBuddy/…` 只返回 `cli` agent(20 个模型、单值 `effort`、无 `supportedEfforts`)。`X-IDE-Type`、`X-IDE-Version`、`X-Product-Version` 换什么都不影响结果。因此插件只在这一个直接请求上使用 VSCode/扩展身份(见 `fetchRemoteModels`)。
 - `x-codebuddy-request: 1` **不属于 CLI 的线上身份**:在 CLI 里它只作为本地网关/daemon/ACP 标记出现,从不出现在模型、账户、计费请求上。已实测去掉后:聊天 200 + SSE、`/v2/plugin/account` `code 0`、`/v2/billing/meter/get-user-resource` `code 0`,因此插件不再发送它。
 - 聊天网关的 **prompt cache 按 `X-Conversation-Id` 分组**,不是仅按前缀。用 2800 token 的 prompt 间隔 8 秒经适配器连发两次实测:
