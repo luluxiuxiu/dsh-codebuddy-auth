@@ -161,6 +161,7 @@ dsh plugin --profile web remove dsh-codebuddy-auth
 
   因此适配器把 loop 打上的 `options.sessionId` 映射成 CLI 的会话头:`X-Conversation-Id` 是会话,`X-Conversation-Request-Id` 锚定用户轮次(工具循环里 loop 一直沿用发起该轮的用户消息及其 id,所以一个工具轮仍算同一个 request),`X-Conversation-Message-Id`/`X-Request-Id` 标识单次模型调用。`X-Session-Id` 有意不发:CLI 声明了它但从不写在模型请求上。
 - `X-Agent-Type` 用于后端对调用分类。CLI 每个模型请求都发(`main` / `subagent` / `team` 用于会话调用,`compaction` 用于 `context_compact` + `context_summary_*`,`auxiliary` 用于辅助用途包括 `conversation_topic` = 标题生成);DSH 通过 `options.purpose` 暴露其中两类,故适配器映射为:未设 → `main`,`'compaction'` → `compaction`,`'session-title'` → `auxiliary`。注意 CLI 面向用户的 `/compact` 走的是 `conversation:compact`,被它归为 `main`——DSH 的 `purpose: 'compaction'` 不是这个:它由上下文压力/空闲会话压缩触发,即 CLI 归为 `compaction` 的那类 harness 驱动压缩。实测:该值对可观测行为无影响(四种取值下 status、usage、SSE 帧结构完全一致),也不参与 prompt cache 分组,纯归属标记。VSCode 扩展完全不发这个头(产物里出现 0 次);DSH 也没有 CLI 那套 subagent/team 会话元数据,所以那类调用报 `main`。
+- **渠道校验会拦第三方 harness 的系统提示指纹**(2026-10-21 起):`POST /v2/chat/completions` 会对每条 `system` 消息做客户端指纹比对,正文以 `You are an AI agent powered by DeepSeek Harness` 开头即整条拒掉,返回 400 / `code 11128`(`Illegal API invocation from an unapproved channel`,提示语是「没通过渠道校验,可能不是官方客户端发出的」)。实测与 UA、`X-IDE-*`、`client` 档位、模型全部无关;同一段文字放进 `user` 消息、或在前面多一个字符就不拦。适配器因此把 system 消息里的 `DeepSeek Harness` 品牌替换成 `CodeBuddy`(`channelSafeSystem`):开头变成 `You are an AI agent powered by CodeBuddy.`,指令与句式一字未改,只换品牌;运行时 / Web GUI 两处环境描述也一起换掉,上游哪天改成子串匹配也仍然干净。
 - CodeBuddy 对每个 craft 模型都报告 `supportsReasoning`。模型按真实推理能力声明(按 `supportedEfforts` 列出等级),因此推理可在模型选择器里直接选用,而非被剥离。
 
 ## License

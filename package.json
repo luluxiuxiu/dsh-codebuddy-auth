@@ -1,6 +1,6 @@
 {
   "name": "dsh-codebuddy-auth",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "CodeBuddy (Tencent IOA) as a native DeepSeek Harness llm provider: browser OAuth login, multi-account pool with auto-rotation, remaining-credit quota, token auto-renewal, credential storage, /v3/config model sync, and a loopback settings/login web UI. Speaks as the official CodeBuddy IDE by default (handshake platform=ide, X-IDE-Type: CodeBuddyIDE), with the CLI/VS Code identities selectable.",
   "type": "module",
   "main": "lib/index.js",
